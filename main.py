@@ -5,7 +5,7 @@ import schedule
 import time
 import threading
 import json
-from token_list import Token
+from token_list import Token # нужно создать файл с токеном
 from data_check import date2date, sorted_dates
 
 token = Token
