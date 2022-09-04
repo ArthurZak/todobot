@@ -7,6 +7,7 @@ import threading
 import json
 from token_list import Token # нужно создать файл с токеном
 from data_check import date2date, sorted_dates
+from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP
 
 token = Token
 
@@ -128,6 +129,34 @@ def get_menu():
     return markup
 
 
+@bot.message_handler(commands=['start_cal'])
+def start_cal(m):
+    msg_task = m.text
+    print(msg_task)
+    calendar, step = DetailedTelegramCalendar().build()
+    bot.send_message(m.chat.id,
+                     f"{m.text}",
+                     reply_markup=calendar)
+
+
+    @bot.callback_query_handler(func=DetailedTelegramCalendar.func())
+    def cal(c):
+        result, key, step = DetailedTelegramCalendar().process(c.data)
+        if not result and key:
+            bot.edit_message_text(f"{c.message.text}",
+                                  c.message.chat.id,
+                                  c.message.message_id,
+                                  reply_markup=key)
+        elif result:
+            d = str(result).split('-')
+            date = '.'.join(d[::-1])
+            msg = bot.edit_message_text(f"{date} {c.message.text}",
+                                  c.message.chat.id,
+                                  c.message.message_id)
+            add_task(msg)
+
+
+
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = get_menu()
@@ -199,19 +228,21 @@ def command_reminder(message):
 def add_task(message):
     if message.chat.id in tasks:
         command = message.text.split(maxsplit=1)
-        if len(command) < 2:
-            try:
-                if command[0] == 'help':
-                    text = f'Пример ввода команды:\n/add 01.01 Новый год!\nСписок доступных для ввода ' \
-                           f'форматов дат можно посмотреть по команде /formatdates'
-                else:
-                    text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
-                           '\n\nИли введите /example для отображения примеров ввода команд'
-            except:
-                text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
-                       '\n\nИли введите /example для отображения примеров ввода команд'
-        else:
-            Date = date2date(command[0])
+        d = command[0].split('-')
+        d = '.'.join(d[::-1])
+        # if len(command) < 2:
+        #     try:
+        #         if command[0] == 'help':
+        #             text = f'Пример ввода команды:\n/add 01.01 Новый год!\nСписок доступных для ввода ' \
+        #                    f'форматов дат можно посмотреть по команде /formatdates'
+        #         else:
+        #             text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
+        #                    '\n\nИли введите /example для отображения примеров ввода команд'
+        #     except:
+        #         text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
+        #                '\n\nИли введите /example для отображения примеров ввода команд'
+        if command:
+            Date = date2date(d)
             task = command[1].capitalize()
             if len(task) < 3:
                 text = 'Задача слишком короткая!'
@@ -221,7 +252,8 @@ def add_task(message):
             else:
                 add_todo(Date, task, message)
                 text = f'Задача "{task}" добавлена на {Date}'
-        bot.send_message(message.chat.id, text)
+            bot.send_message(message.chat.id, text)
+            print(tasks)
     else:
         bot.send_message(message.chat.id, 'Для начала нажмите /start')
 
@@ -247,17 +279,6 @@ def show_tasks(message):
     if message.chat.id in tasks:
         command = message.text.split()
         text = ""
-        # if len(command) < 2 or command[1] == 'задачи':
-        #     if len(tasks[message.chat.id]) == 0:
-        #         text = 'Задач нет!'
-        #     else:
-        #         sorted_dates_list = sorted_dates(tasks, message.chat.id)
-        #         for Date in sorted_dates_list:
-        #             if Date.date() >= date.today():
-        #                 Date = Date.strftime("%d.%m.%Y")
-        #                 text += "* " + Date.upper() + "\n"
-        #                 for task in tasks[message.chat.id][Date]:
-        #                     text += "[] " + task + "\n"
         if len(command) == 1:
             if command[0] == 'help':
                 text = f'Пример ввода команды:\n/show или /show 01.01 или /show 01.01 14.02\nСписок доступных ' \
@@ -285,16 +306,22 @@ def show_tasks(message):
                 else:
                     text = "Задач на эту дату нет!"
         elif len(command) > 1:
-            Dates = command[0].split()
-            sorted_dates_list = sorted_dates(Dates, message.chat.id)
-            for Date in sorted_dates_list:
-                Date = date2date(Date)
-                if Date in tasks[message.chat.id]:
-                    text += "* " + Date.upper() + "\n"
-                    for task in tasks[message.chat.id][Date]:
-                        text += "[] " + task + "\n"
-                else:
-                    text = "Какая-то из дат неверная!"
+            Dates = command
+            for i in range(len(Dates)):
+                Dates[i] = date2date(Dates[i])
+            if 'Неверная дата' in Dates:
+                text = "Какая-то из дат неверная!"
+            else:
+                sorted_dates_list = sorted_dates(Dates, message.chat.id)
+                for Date in sorted_dates_list:
+                    Date = Date.strftime("%d.%m.%Y")
+                    Date = date2date(Date)
+                    if Date in tasks[message.chat.id]:
+                        text += "* " + Date.upper() + "\n"
+                        for task in tasks[message.chat.id][Date]:
+                            text += "[] " + task + "\n"
+                    else:
+                        text = "Какая-то из дат неверная!"
         else:
             text = "Задач на эту дату нет!"
         bot.send_message(message.chat.id, text)
@@ -419,38 +446,46 @@ def done_task(message):
 
 @bot.message_handler(content_types=['text'])
 def get_text(message):
-    msg = message.text
-    if msg == 'Меню':
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        buttom_add = types.KeyboardButton('Добавить задачу')
-        buttom_done = types.KeyboardButton('Отметить выполненной')
-        buttom_del = types.KeyboardButton('Удалить задачу')
-        buttom_show = types.KeyboardButton('Показать задачи')
-        buttom_back = types.KeyboardButton('Назад')
-        markup.add(buttom_add)
-        markup.add(buttom_show)
-        markup.add(buttom_done)
-        markup.add(buttom_del)
-        markup.add(buttom_back)
-        bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
-    elif msg == 'Добавить задачу':
-        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
-        bot.register_next_step_handler(msg, add_task)
-    elif msg == 'Отметить выполненной':
-        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
-        bot.register_next_step_handler(msg, done_task)
-    elif msg == 'Удалить задачу':
-        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
-        bot.register_next_step_handler(msg, delete_task)
-    elif msg == 'Показать задачи':
-        msg = bot.send_message(message.chat.id, 'Введите дату')
-        bot.register_next_step_handler(msg, show_tasks)
-    elif message.text == 'Назад':
-        markup = get_menu()
-        bot.send_message(message.chat.id, 'Для выбора команды нажмите "меню"', reply_markup=markup)
+    if message.chat.id in tasks:
+        msg = message.text
+        if msg == 'Меню':
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            buttom_add = types.KeyboardButton('Добавить задачу')
+            buttom_rand = types.KeyboardButton('Случайная задача')
+            buttom_done = types.KeyboardButton('Отметить выполненной')
+            buttom_del = types.KeyboardButton('Удалить задачу')
+            buttom_show = types.KeyboardButton('Показать задачи')
+            buttom_help = types.KeyboardButton('Подсказка')
+            buttom_back = types.KeyboardButton('Назад')
+            markup.add(buttom_add, buttom_rand)
+            markup.add(buttom_done, buttom_del)
+            markup.add(buttom_show, buttom_help)
+            markup.add(buttom_back)
+            bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
+        elif msg == 'Добавить задачу':
+            msg = bot.send_message(message.chat.id, 'Введите задачу')
+            bot.register_next_step_handler(msg, start_cal)
+        elif msg == 'Случайная задача':
+            random_task_add(message)
+        elif msg == 'Отметить выполненной':
+            msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
+            bot.register_next_step_handler(msg, done_task)
+        elif msg == 'Удалить задачу':
+            msg = bot.send_message(message.chat.id, 'Введите дату для удаления всех задач на эту дату\nИли введите дату и задачу для удаления одной задачи ')
+            bot.register_next_step_handler(msg, delete_task)
+        elif msg == 'Показать задачи':
+            msg = bot.send_message(message.chat.id, 'Введите дату\nВведите "Все" для отображения всех задач')
+            bot.register_next_step_handler(msg, show_tasks)
+        elif msg == 'Подсказка':
+            command_formatdates(message)
+        elif message.text == 'Назад':
+            markup = get_menu()
+            bot.send_message(message.chat.id, 'Для выбора команды нажмите "меню"', reply_markup=markup)
+        else:
+            text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
+            bot.send_message(message.chat.id, text)
     else:
-        text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
-        bot.send_message(message.chat.id, text)
+        bot.send_message(message.chat.id, 'Для начала введите /start')
 
 
 def cronTask():
