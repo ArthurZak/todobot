@@ -1,4 +1,4 @@
-from telebot import TeleBot
+from telebot import TeleBot, types
 import random
 from datetime import date, datetime
 import schedule
@@ -121,8 +121,16 @@ for key, value in dataset_users.items():
     users[int(key)] = value
 
 
+def get_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    buttom_menu = types.KeyboardButton('Меню')
+    markup.add(buttom_menu)
+    return markup
+
+
 @bot.message_handler(commands=['start'])
 def start(message):
+    markup = get_menu()
     user_id = message.chat.id
     if user_id in tasks:
         text = 'Похоже вы уже используете TODO'
@@ -133,7 +141,7 @@ def start(message):
         save_tasks()
         text = f'Привет {message.from_user.first_name}!\nВсё готово, можно начинать\n{HELP}\n' \
                f'Для показа подсказки ввода команд введите /команда help или /example'
-    bot.send_message(message.chat.id, text)
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
 
 # Регистрирует функцию ниже в качестве обработчика
@@ -190,10 +198,10 @@ def command_reminder(message):
 @bot.message_handler(commands=['add'])
 def add_task(message):
     if message.chat.id in tasks:
-        command = message.text.split(maxsplit=2)
-        if len(command) < 3:
+        command = message.text.split(maxsplit=1)
+        if len(command) < 2:
             try:
-                if command[1] == 'help':
+                if command[0] == 'help':
                     text = f'Пример ввода команды:\n/add 01.01 Новый год!\nСписок доступных для ввода ' \
                            f'форматов дат можно посмотреть по команде /formatdates'
                 else:
@@ -203,8 +211,8 @@ def add_task(message):
                 text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
                        '\n\nИли введите /example для отображения примеров ввода команд'
         else:
-            Date = date2date(command[1])
-            task = command[2].capitalize()
+            Date = date2date(command[0])
+            task = command[1].capitalize()
             if len(task) < 3:
                 text = 'Задача слишком короткая!'
             elif Date == 'Неверная дата':
@@ -237,25 +245,36 @@ def random_task_add(message):
 @bot.message_handler(commands=['show'])
 def show_tasks(message):
     if message.chat.id in tasks:
-        command = message.text.split(maxsplit=1)
+        command = message.text.split()
         text = ""
-        if len(command) < 2 or command[1] == 'задачи':
-            if len(tasks[message.chat.id]) == 0:
-                text = 'Задач нет!'
-            else:
-                sorted_dates_list = sorted_dates(tasks, message.chat.id)
-                for Date in sorted_dates_list:
-                    if Date.date() >= date.today():
-                        Date = Date.strftime("%d.%m.%Y")
-                        text += "* " + Date.upper() + "\n"
-                        for task in tasks[message.chat.id][Date]:
-                            text += "[] " + task + "\n"
-        elif len(command[1].split()) == 1:
-            if message.text.split()[1] == 'help':
+        # if len(command) < 2 or command[1] == 'задачи':
+        #     if len(tasks[message.chat.id]) == 0:
+        #         text = 'Задач нет!'
+        #     else:
+        #         sorted_dates_list = sorted_dates(tasks, message.chat.id)
+        #         for Date in sorted_dates_list:
+        #             if Date.date() >= date.today():
+        #                 Date = Date.strftime("%d.%m.%Y")
+        #                 text += "* " + Date.upper() + "\n"
+        #                 for task in tasks[message.chat.id][Date]:
+        #                     text += "[] " + task + "\n"
+        if len(command) == 1:
+            if command[0] == 'help':
                 text = f'Пример ввода команды:\n/show или /show 01.01 или /show 01.01 14.02\nСписок доступных ' \
                        f'для ввода форматов времени можно посмотреть по команде \n/formatdates'
+            elif command[0].lower() == 'все':
+                if len(tasks[message.chat.id]) == 0:
+                    text = 'Задач нет!'
+                else:
+                    sorted_dates_list = sorted_dates(tasks, message.chat.id)
+                    for Date in sorted_dates_list:
+                        if Date.date() >= date.today():
+                            Date = Date.strftime("%d.%m.%Y")
+                            text += "* " + Date.upper() + "\n"
+                            for task in tasks[message.chat.id][Date]:
+                                text += "[] " + task + "\n"
             else:
-                Date = date2date(command[1])
+                Date = date2date(command[0])
                 if Date == 'Неверная дата':
                     text = 'Неверно введена дата!\nСписок доступных для ввода форматов дат можно посмотреть ' \
                            'по команде /formatdates'
@@ -265,8 +284,8 @@ def show_tasks(message):
                         text += "[] " + task + "\n"
                 else:
                     text = "Задач на эту дату нет!"
-        elif len(command[1].split()) > 1:
-            Dates = command[1].split()
+        elif len(command) > 1:
+            Dates = command[0].split()
             sorted_dates_list = sorted_dates(Dates, message.chat.id)
             for Date in sorted_dates_list:
                 Date = date2date(Date)
@@ -307,17 +326,17 @@ def show_all_past_tasks(message):
 @bot.message_handler(commands=['del', 'delete'])
 def delete_task(message):
     if message.chat.id in tasks:
-        command = message.text.split(maxsplit=2)
-        if len(command) == 1:
+        command = message.text.split(maxsplit=1)
+        if len(command) < 1:
             text = 'Введите команду в формате:\n/del дата задача\nдля удаления выбранной задачи\n\n' \
                    'Или в формате:\n/del дата\nдля удаления всех задач на выбранную дату\n\n' \
                    'Или введите /example для отображения примеров ввода команд'
-        elif len(command) == 2:
-            if message.text.split()[1] == 'help':
+        elif len(command) == 1:
+            if message.text.split()[0] == 'help':
                 text = f'Пример ввода команды:\n/del 01.01 Новый год! или /del 01.01\n' \
                        f'Список доступных для ввода форматов времени можно посмотреть по команде \n/formatdates'
             else:
-                Date = date2date(command[1])
+                Date = date2date(command[0])
                 if Date == 'Неверная дата':
                     text = 'Неверная дата\nСписок доступных для ввода форматов времени ' \
                            'можно посмотреть по команде \n/formatdates'
@@ -329,12 +348,12 @@ def delete_task(message):
                     else:
                         text = f'Даты {Date} пока нет в вашем списке'
         else:
-            Date = date2date(command[1])
+            Date = date2date(command[0])
             if Date == 'Неверная дата':
                 text = 'Неверная дата\nСписок доступных для ввода форматов времени ' \
                        'можно посмотреть по команде \n/formatdates'
             elif Date in tasks[message.chat.id]:
-                task = command[2].capitalize()
+                task = command[1].capitalize()
                 task_done = task + ' ✓ '
                 if task in tasks[message.chat.id][Date]:
                     tasks[message.chat.id][Date].remove(task)
@@ -360,10 +379,10 @@ def delete_task(message):
 @bot.message_handler(commands=['done'])
 def done_task(message):
     if message.chat.id in tasks:
-        command = message.text.split(maxsplit=2)
-        if len(command) < 3:
+        command = message.text.split(maxsplit=1)
+        if len(command) < 2:
             try:
-                if message.text.split()[1] == 'help':
+                if message.text.split()[0] == 'help':
                     text = f'Пример ввода команды:\n/done 01.01 Новый год!\nСписок доступных для ввода форматов' \
                            f' дат можно посмотреть по команде \n/formatdates'
                 else:
@@ -373,13 +392,13 @@ def done_task(message):
                 text = f'Введите команду в формате:\n/done дата задача\nчтобы добавить задачу в список.' \
                        f'\n\nИли введите /example для отображения примеров ввода команд'
         else:
-            Date = date2date(command[1])
+            Date = date2date(command[0])
             if Date == 'Неверная дата':
                 text = 'Неверная дата\nСписок доступных для ввода форматов времени можно ' \
                        'посмотреть по команде \n/formatdates'
             else:
                 if Date in tasks[message.chat.id]:
-                    task = command[2].capitalize()
+                    task = command[1].capitalize()
                     task_done = task + ' ✓ '
                     if task in tasks[message.chat.id][Date]:
                         i = tasks[message.chat.id][Date].index(task)
@@ -400,8 +419,38 @@ def done_task(message):
 
 @bot.message_handler(content_types=['text'])
 def get_text(message):
-    text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
-    bot.send_message(message.chat.id, text)
+    msg = message.text
+    if msg == 'Меню':
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        buttom_add = types.KeyboardButton('Добавить задачу')
+        buttom_done = types.KeyboardButton('Отметить выполненной')
+        buttom_del = types.KeyboardButton('Удалить задачу')
+        buttom_show = types.KeyboardButton('Показать задачи')
+        buttom_back = types.KeyboardButton('Назад')
+        markup.add(buttom_add)
+        markup.add(buttom_show)
+        markup.add(buttom_done)
+        markup.add(buttom_del)
+        markup.add(buttom_back)
+        bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
+    elif msg == 'Добавить задачу':
+        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
+        bot.register_next_step_handler(msg, add_task)
+    elif msg == 'Отметить выполненной':
+        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
+        bot.register_next_step_handler(msg, done_task)
+    elif msg == 'Удалить задачу':
+        msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
+        bot.register_next_step_handler(msg, delete_task)
+    elif msg == 'Показать задачи':
+        msg = bot.send_message(message.chat.id, 'Введите дату')
+        bot.register_next_step_handler(msg, show_tasks)
+    elif message.text == 'Назад':
+        markup = get_menu()
+        bot.send_message(message.chat.id, 'Для выбора команды нажмите "меню"', reply_markup=markup)
+    else:
+        text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
+        bot.send_message(message.chat.id, text)
 
 
 def cronTask():
