@@ -1,0 +1,4 @@
+pyTelegramBotAPI==4.6.1
+python-telegram-bot-calendar==1.0.5
+schedule==1.1.0
+gunicorn==20.1.0
