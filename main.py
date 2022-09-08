@@ -193,14 +193,17 @@ def command_formatdates(message):
 @bot.message_handler(commands=['rem'])
 def command_reminder(message):
     try:
-        command = message.text.split()
-        if command[1] == 'help':
+        command = message.text
+        if command == 'help':
             text = f'Пример ввода команды:\n/rem 10:00\nСписок доступных для ввода форматов времени ' \
                    f'можно посмотреть по команде \n/formatdates'
             bot.send_message(message.chat.id, text)
         else:
             try:
-                usertime = command[1].replace('.', ':').replace('-', ':').replace(',', ':')
+                usertime = command.replace('.', ':').replace('-', ':').replace(',', ':')
+                usertime = usertime.split(':')
+                usertime[0] = str(int(usertime[0]) + 3)
+                usertime = ':'.join(usertime)
                 try:
                     if (int(usertime.split(':')[0]) not in tuple(range(0, 24))) or (
                             int(usertime.split(':')[1]) not in tuple(range(0, 60))):
@@ -230,17 +233,6 @@ def add_task(message):
         command = message.text.split(maxsplit=1)
         d = command[0].split('-')
         d = '.'.join(d[::-1])
-        # if len(command) < 2:
-        #     try:
-        #         if command[0] == 'help':
-        #             text = f'Пример ввода команды:\n/add 01.01 Новый год!\nСписок доступных для ввода ' \
-        #                    f'форматов дат можно посмотреть по команде /formatdates'
-        #         else:
-        #             text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
-        #                    '\n\nИли введите /example для отображения примеров ввода команд'
-        #     except:
-        #         text = 'Введите команду в формате:\n/add дата задача\nчтобы добавить задачу в список.' \
-        #                '\n\nИли введите /example для отображения примеров ввода команд'
         if command:
             Date = date2date(d)
             task = command[1].capitalize()
@@ -457,10 +449,11 @@ def get_text(message):
             buttom_show = types.KeyboardButton('Показать задачи')
             buttom_help = types.KeyboardButton('Подсказка')
             buttom_back = types.KeyboardButton('Назад')
+            buttom_rem = types.KeyboardButton('Напоминание')
             markup.add(buttom_add, buttom_rand)
             markup.add(buttom_done, buttom_del)
-            markup.add(buttom_show, buttom_help)
-            markup.add(buttom_back)
+            markup.add(buttom_show, buttom_rem)
+            markup.add(buttom_help, buttom_back)
             bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
         elif msg == 'Добавить задачу':
             msg = bot.send_message(message.chat.id, 'Введите задачу')
@@ -476,6 +469,9 @@ def get_text(message):
         elif msg == 'Показать задачи':
             msg = bot.send_message(message.chat.id, 'Введите дату\nВведите "Все" для отображения всех задач')
             bot.register_next_step_handler(msg, show_tasks)
+        elif msg == 'Напоминание':
+            msg = bot.send_message(message.chat.id, 'Введите время')
+            bot.register_next_step_handler(msg, command_reminder)
         elif msg == 'Подсказка':
             command_formatdates(message)
         elif message.text == 'Назад':
