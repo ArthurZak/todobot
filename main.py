@@ -200,8 +200,8 @@ def command_reminder(message):
             bot.send_message(message.chat.id, text)
         else:
             try:
-                usertime = command.replace('.', ':').replace('-', ':').replace(',', ':')
-                usertime = usertime.split(':')
+                usertime_loc = command.replace('.', ':').replace('-', ':').replace(',', ':')
+                usertime = usertime_loc.split(':')
                 usertime[0] = str(int(usertime[0]) + 3)
                 usertime = ':'.join(usertime)
                 try:
@@ -214,7 +214,7 @@ def command_reminder(message):
                         reminders[message.chat.id] = usertime
                         save_tasks()
                         bot.send_message(message.chat.id,
-                                         f'Создано напоминание о задачах на {reminders[message.chat.id]}')
+                                         f'Создано напоминание о задачах на {usertime_loc}')
                 except:
                     bot.send_message(message.chat.id,
                                      f'Время введено неправильно.\nСписок доступных для ввода форматов '
