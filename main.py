@@ -202,7 +202,7 @@ def command_reminder(message):
             try:
                 usertime_loc = command.replace('.', ':').replace('-', ':').replace(',', ':')
                 usertime = usertime_loc.split(':')
-                usertime[0] = str(int(usertime[0]) + 3)
+                usertime[0] = str(int(usertime[0]) - 3)
                 usertime = ':'.join(usertime)
                 try:
                     if (int(usertime.split(':')[0]) not in tuple(range(0, 24))) or (
