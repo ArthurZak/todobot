@@ -95,9 +95,13 @@ def load_tasks():
 
 # Функция сохранения датасета пользователей в файл
 def save_tasks():
-    tasks_file = open(tasks_file_name, 'w')
-    data = [tasks, reminders, users]
-    json.dump(data, tasks_file)
+    with open(tasks_file_name, mode="w") as json_file:
+        data = [tasks, reminders, users]
+        json.dump(data, json_file, indent=4, ensure_ascii=False)
+
+    # tasks_file = open(tasks_file_name, 'w')
+    # data = [tasks, reminders, users]
+    # json.dump(data, tasks_file)
     pass
 
 
