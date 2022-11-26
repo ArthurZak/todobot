@@ -1,139 +1,85 @@
 from telebot import TeleBot, types
 import random
-from datetime import date, datetime
-import schedule
-import time
-import threading
-import json
-from token_list import Token # нужно создать файл с токеном
+from datetime import date
 from data_check import date2date, sorted_dates
-from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP
-
-token = Token
-
-# Создание переменной для использования функциий библиотеки
-bot = TeleBot(token)
+from telegram_bot_calendar import DetailedTelegramCalendar
+import configparser
+import boto3
+from botocore.exceptions import ClientError
 
 HELP = """
-ВАЖНО! Для использования команд из списка меню необходимо зажать нужную команду!
-Список доступных команд:
-  /help — Вывести список доступных команд.
-  /add — Добавить задачу в список.
-  /rem — Добавление напоминания.
-  /del — Удалить задачу.
-  /done — Отметить задачу выполненной.
-  /show — Напечатать все добавленные задачи на выбранную дату (можно ввести несколько дат через пробел).
-  /past — Вывести список прошедших здач.
-  /random — Добавить случайную задачу на сегодня.
-  /example — Вывести примеры ввода команд.
-  /formatdates — Вывести список форматов дат доступных для ввода.
+Данный бот создан для ведения списка задач.
+Всё управление ботом осуществляется при помощи кнопок меню. 
 
-Для показа подсказки ввода команды введите:
-  /команда help
+Для добавление задачи необходимо нажать кнопку "Добавить задачу", затем написать задачу
+и далее выбрать необходимую дату, на которую хотите добавить задачу.
+Для удаления или отметки задачи выполненной необходимо нажать соответствующую кнопку
+и далее выбрать день и нужную задачу.  
 """
 
-example = """
-Пример ввода команд:
-Для команд /add, /del, /done:
-    /команда дата задача
-Пример: 
-    /add 01.01 Новый год 
-Примечание: 
-    для команды /del можно ввести только дату для удаления всех задач на выбранную дату
-Пример:
-    /del 01.01
-Для команды /show:
-    /команда дата
-Пример:
-    /show 01.01
-Примечание:
-    можно ввести несколько дат для отображения задач на выбранные даты
-    или ничего не вводить для отображения всех задач на все записанные даты
-Пример:
-    /show 01.01 23.02
-
-Для команд /help, /formatdates, 
-/past, /random ничего дополнительно вводить не нужно.
-
-Для команды /rem:
-    /команда время
-Пример:
-    /rem 10:00
-
-Список доступных для ввода ворматов дат и времени можно посмотреть по команде 
-/formatdates
-"""
-
-dates_format = """
-Дата:
-- dd.mm / dd,mm / dd/mm / dd-mm,
-- dd.mm.yyyy / dd,mm,yyyy / dd/mm/yyyy / dd-mm-yyyy,
-- Сегодня/Завтра/Послезавтра/Today/Tomorrow,
-- Дни недели.
-
-Время:
-- чч:мм / чч-мм / чч.мм / чч,мм
-"""
-
-tasks_file_name = 'tasks_file.json'
-users = {}
-tasks = {}
-reminders = {}
 random_tasks = ['Поучить английский', 'Позаниматься спортом', 'Почитать книгу', 'Решить судоку', 'Порисовать',
                 'Посмотреть новый фильм', 'Погулять', 'Поспать', 'Приготовить необычное блюдо']
 
 
-# Функция импорта датасета пользователей из файла
-def load_tasks():
+def read_user(user_id):
+    config1 = configparser.ConfigParser()
+    config1.read("tokens.ini")
+    dynamodb = boto3.resource(
+        'dynamodb',
+        endpoint_url=config['TOKENS']['USER_STORAGE_URL'],
+        region_name='us-east-1',
+        aws_access_key_id=config['TOKENS']['AWS_ACCESS_KEY_ID'],
+        aws_secret_access_key=config['TOKENS']['AWS_SECRET_ACCESS_KEY']
+    )
+    table = dynamodb.Table('Users_tasks')
     try:
-        with open(tasks_file_name, "r") as tasks_file:
-            data_tasks, data_reminders, data_users = json.load(tasks_file)
-            return data_tasks, data_reminders, data_users
-    except:
-        return {}, {}, {}
+        response = table.get_item(Key={'user_id': str(user_id)})
+    except ClientError as e:
+        print(e.response['Error']['Message'])
+    else:
+        return response
 
 
-# Функция сохранения датасета пользователей в файл
-def save_tasks():
-    with open(tasks_file_name, mode="w") as json_file:
-        data = [tasks, reminders, users]
-        json.dump(data, json_file, indent=4, ensure_ascii=False)
+def create_user(user_id, user_data):
+    config1 = configparser.ConfigParser()
+    config1.read("tokens.ini")
+    dynamodb = boto3.resource(
+        'dynamodb',
+        endpoint_url=config['TOKENS']['USER_STORAGE_URL'],
+        region_name='us-east-1',
+        aws_access_key_id=config['TOKENS']['AWS_ACCESS_KEY_ID'],
+        aws_secret_access_key=config['TOKENS']['AWS_SECRET_ACCESS_KEY']
+    )
+    table = dynamodb.Table('Users_tasks')
+    response = table.put_item(
+        Item={
+            'user_id': str(user_id),
+            'user_data': user_data
+        }
+    )
+    return response
 
-    # tasks_file = open(tasks_file_name, 'w')
-    # data = [tasks, reminders, users]
-    # json.dump(data, tasks_file)
-    pass
 
-
-# Функция добавления задачи в словарь
 def add_todo(Date, task, message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
     if Date in tasks[message.chat.id]:
         tasks[message.chat.id][Date].append(task)
-        save_tasks()
+        user_data = {'tasks': tasks[message.chat.id]}
+        create_user(message.chat.id, user_data)
     else:
         tasks[message.chat.id][Date] = []
         tasks[message.chat.id][Date].append(task)
-        save_tasks()
-
-
-# Импорт датасета пользователей из файла и преобразование ключей из str в int
-dataset_tasks, dataset_reminders, dataset_users = load_tasks()
-for key, value in dataset_tasks.items():
-    tasks[int(key)] = value
-for key, value in dataset_reminders.items():
-    reminders[int(key)] = value
-for key, value in dataset_users.items():
-    users[int(key)] = value
+        user_data = {'tasks': tasks[message.chat.id]}
+        create_user(message.chat.id, user_data)
 
 
 def get_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttom_menu = types.KeyboardButton('Меню')
-    markup.add(buttom_menu)
+    button_menu = types.KeyboardButton('Меню')
+    markup.add(button_menu)
     return markup
 
 
-@bot.message_handler(commands=['start_cal'])
 def start_cal(m):
     msg_task = m.text
     print(msg_task)
@@ -142,10 +88,9 @@ def start_cal(m):
                      f"{m.text}",
                      reply_markup=calendar)
 
-
     @bot.callback_query_handler(func=DetailedTelegramCalendar.func())
     def cal(c):
-        result, key, step = DetailedTelegramCalendar().process(c.data)
+        result, key, step1 = DetailedTelegramCalendar().process(c.data)
         if not result and key:
             bot.edit_message_text(f"{c.message.text}",
                                   c.message.chat.id,
@@ -153,113 +98,45 @@ def start_cal(m):
                                   reply_markup=key)
         elif result:
             d = str(result).split('-')
-            date = '.'.join(d[::-1])
-            msg = bot.edit_message_text(f"{date} {c.message.text}",
-                                  c.message.chat.id,
-                                  c.message.message_id)
+            Date = '.'.join(d[::-1])
+            msg = bot.edit_message_text(f"{Date} {c.message.text}",
+                                        c.message.chat.id,
+                                        c.message.message_id)
             add_task(msg)
 
 
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    markup = get_menu()
-    user_id = message.chat.id
-    if user_id in tasks:
-        text = 'Похоже вы уже используете TODO'
-    else:
-        tasks[user_id] = {}
-        reminders[user_id] = {}
-        users[user_id] = message.from_user.first_name
-        save_tasks()
-        text = f'Привет {message.from_user.first_name}!\nВсё готово, можно начинать\n{HELP}\n' \
-               f'Для показа подсказки ввода команд введите /команда help или /example'
-    bot.send_message(message.chat.id, text, reply_markup=markup)
-
-
 # Регистрирует функцию ниже в качестве обработчика
-@bot.message_handler(commands=['help'])
-# Функция принимающая сообщения
-def help(message):
+def get_help(message):
     bot.send_message(message.chat.id, f'{HELP}')
 
 
-@bot.message_handler(commands=['example'])
-def command_example(message):
-    bot.send_message(message.chat.id, f'{example}')
-
-
-@bot.message_handler(commands=['formatdates'])
-def command_formatdates(message):
-    bot.send_message(message.chat.id, f'Список форматов дат и времени доступных для ввода:\n{dates_format}')
-
-
-@bot.message_handler(commands=['rem'])
-def command_reminder(message):
-    try:
-        command = message.text
-        if command == 'help':
-            text = f'Пример ввода команды:\n/rem 10:00\nСписок доступных для ввода форматов времени ' \
-                   f'можно посмотреть по команде \n/formatdates'
-            bot.send_message(message.chat.id, text)
-        else:
-            try:
-                usertime_loc = command.replace('.', ':').replace('-', ':').replace(',', ':')
-                usertime = usertime_loc.split(':')
-                usertime[0] = str(int(usertime[0]) - 3)
-                usertime = ':'.join(usertime)
-                try:
-                    if (int(usertime.split(':')[0]) not in tuple(range(0, 24))) or (
-                            int(usertime.split(':')[1]) not in tuple(range(0, 60))):
-                        bot.send_message(message.chat.id,
-                                         f'Время введено неправильно.\nСписок доступных для ввода форматов '
-                                         f'времени можно посмотреть по команде /formatdates')
-                    else:
-                        reminders[message.chat.id] = usertime
-                        save_tasks()
-                        bot.send_message(message.chat.id,
-                                         f'Создано напоминание о задачах на {usertime_loc}')
-                except:
-                    bot.send_message(message.chat.id,
-                                     f'Время введено неправильно.\nСписок доступных для ввода форматов '
-                                     f'времени можно посмотреть по команде /formatdates')
-            except:
-                bot.send_message(message.chat.id, f'Введите команду в формате\n/rem время\n\nИли введите '
-                                                  f'/example для отображения примеров ввода команд')
-    except:
-        text = 'Введите команду в формате\n/rem время\n\nИли введите /example для отображения примеров ввода команд'
-        bot.send_message(message.chat.id, text)
-
-
-@bot.message_handler(commands=['add'])
 def add_task(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
     if message.chat.id in tasks:
         command = message.text.split(maxsplit=1)
-        d = command[0].split('-')
-        d = '.'.join(d[::-1])
-        if command:
-            Date = date2date(d)
-            task = command[1].capitalize()
-            if len(task) < 3:
-                text = 'Задача слишком короткая!'
-            elif Date == 'Неверная дата':
-                text = 'Неверно введена дата!\nСписок доступных для ввода форматов дат можно ' \
-                       'посмотреть по команде /formatdates'
-            else:
-                add_todo(Date, task, message)
-                text = f'Задача "{task}" добавлена на {Date}'
-            bot.send_message(message.chat.id, text)
-            print(tasks)
+        Date = date2date(command[0])
+        task = command[1].capitalize()
+        if len(task) < 3:
+            text = 'Задача слишком короткая!'
+        elif Date == 'Неверная дата':
+            text = 'Неверно введена дата!\nСписок доступных для ввода форматов дат можно ' \
+                   'посмотреть по команде /formatdates'
+        else:
+            add_todo(Date, task, message)
+            text = f'Задача "{task}" добавлена на {Date}'
+        bot.edit_message_text(f'{text}', message.chat.id, message.message_id)
+        print(tasks)
     else:
         bot.send_message(message.chat.id, 'Для начала нажмите /start')
 
 
-@bot.message_handler(commands=['random'])
 def random_task_add(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
     if message.chat.id in tasks:
         Date = date2date('сегодня')
         task = random.choice(random_tasks).capitalize()
-        if Date in tasks[message.chat.id] and task in tasks[message.chat.id][Date]:
+        if Date in tasks[message.chat.id] and (task in tasks[message.chat.id][Date] or
+                                               f'{task} ✅' in tasks[message.chat.id][Date]):
             text = 'Похоже такая задача уже добавлена'
         else:
             add_todo(Date, task, message)
@@ -270,63 +147,43 @@ def random_task_add(message):
         bot.send_message(message.chat.id, 'Для начала нажмите /start')
 
 
-@bot.message_handler(commands=['show'])
 def show_tasks(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
     if message.chat.id in tasks:
-        command = message.text.split()
-        text = ""
-        if len(command) == 1:
-            if command[0] == 'help':
-                text = f'Пример ввода команды:\n/show или /show 01.01 или /show 01.01 14.02\nСписок доступных ' \
-                       f'для ввода форматов времени можно посмотреть по команде \n/formatdates'
-            elif command[0].lower() == 'все':
-                if len(tasks[message.chat.id]) == 0:
-                    text = 'Задач нет!'
-                else:
-                    sorted_dates_list = sorted_dates(tasks, message.chat.id)
-                    for Date in sorted_dates_list:
-                        if Date.date() >= date.today():
-                            Date = Date.strftime("%d.%m.%Y")
-                            text += "* " + Date.upper() + "\n"
-                            for task in tasks[message.chat.id][Date]:
-                                text += "[] " + task + "\n"
+        command = message.text
+        text = ''
+        if command == 'help':
+            text = f'Пример ввода команды:\n/show или /show 01.01 или /show 01.01 14.02\nСписок доступных ' \
+                   f'для ввода форматов времени можно посмотреть по команде \n/formatdates'
+        elif command.lower() == 'все':
+            if len(tasks[message.chat.id]) == 0:
+                text = 'Задач нет!'
             else:
-                Date = date2date(command[0])
-                if Date == 'Неверная дата':
-                    text = 'Неверно введена дата!\nСписок доступных для ввода форматов дат можно посмотреть ' \
-                           'по команде /formatdates'
-                elif Date in tasks[message.chat.id]:
-                    text = "* " + Date.upper() + "\n"
-                    for task in tasks[message.chat.id][Date]:
-                        text += "[] " + task + "\n"
-                else:
-                    text = "Задач на эту дату нет!"
-        elif len(command) > 1:
-            Dates = command
-            for i in range(len(Dates)):
-                Dates[i] = date2date(Dates[i])
-            if 'Неверная дата' in Dates:
-                text = "Какая-то из дат неверная!"
-            else:
-                sorted_dates_list = sorted_dates(Dates, message.chat.id)
+                sorted_dates_list = sorted_dates(tasks, message.chat.id)
                 for Date in sorted_dates_list:
-                    Date = Date.strftime("%d.%m.%Y")
-                    Date = date2date(Date)
-                    if Date in tasks[message.chat.id]:
+                    if Date >= date.today():
+                        Date = Date.strftime("%d.%m.%Y")
                         text += "* " + Date.upper() + "\n"
                         for task in tasks[message.chat.id][Date]:
-                            text += "[] " + task + "\n"
-                    else:
-                        text = "Какая-то из дат неверная!"
+                            text += "- " + task + "\n"
         else:
-            text = "Задач на эту дату нет!"
-        bot.send_message(message.chat.id, text)
+            Date = date2date(command)
+            if Date == 'Неверная дата':
+                text = 'Неверно введена дата!\nСписок доступных для ввода форматов дат можно посмотреть ' \
+                       'по команде /formatdates'
+            elif Date in tasks[message.chat.id]:
+                text = "* " + Date.upper() + "\n"
+                for task in tasks[message.chat.id][Date]:
+                    text += "- " + task + "\n"
+            else:
+                text = "Задач на эту дату нет!"
+        bot.edit_message_text(f'{text}', message.chat.id, message.message_id)
     else:
         bot.send_message(message.chat.id, 'Для начала нажмите /start')
 
 
-@bot.message_handler(commands=['past'])
 def show_all_past_tasks(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
     if message.chat.id in tasks:
         text = ""
         if len(tasks[message.chat.id]) == 0:
@@ -346,176 +203,157 @@ def show_all_past_tasks(message):
         bot.send_message(message.chat.id, 'Для начала нажмите /start')
 
 
-@bot.message_handler(commands=['del', 'delete'])
 def delete_task(message):
-    if message.chat.id in tasks:
-        command = message.text.split(maxsplit=1)
-        if len(command) < 1:
-            text = 'Введите команду в формате:\n/del дата задача\nдля удаления выбранной задачи\n\n' \
-                   'Или в формате:\n/del дата\nдля удаления всех задач на выбранную дату\n\n' \
-                   'Или введите /example для отображения примеров ввода команд'
-        elif len(command) == 1:
-            if message.text.split()[0] == 'help':
-                text = f'Пример ввода команды:\n/del 01.01 Новый год! или /del 01.01\n' \
-                       f'Список доступных для ввода форматов времени можно посмотреть по команде \n/formatdates'
-            else:
-                Date = date2date(command[0])
-                if Date == 'Неверная дата':
-                    text = 'Неверная дата\nСписок доступных для ввода форматов времени ' \
-                           'можно посмотреть по команде \n/formatdates'
-                else:
-                    if Date in tasks[message.chat.id]:
-                        del tasks[message.chat.id][Date]
-                        text = f'Все задачи на дату {Date} удалены'
-                        save_tasks()
-                    else:
-                        text = f'Даты {Date} пока нет в вашем списке'
-        else:
-            Date = date2date(command[0])
-            if Date == 'Неверная дата':
-                text = 'Неверная дата\nСписок доступных для ввода форматов времени ' \
-                       'можно посмотреть по команде \n/formatdates'
-            elif Date in tasks[message.chat.id]:
-                task = command[1].capitalize()
-                task_done = task + ' ✓ '
-                if task in tasks[message.chat.id][Date]:
-                    tasks[message.chat.id][Date].remove(task)
-                    text = f'Задача "{task}" на дату {Date} удалена'
-                    if len(tasks[message.chat.id][Date]) == 0:
-                        del tasks[message.chat.id][Date]
-                    save_tasks()
-                elif task_done in tasks[message.chat.id][Date]:
-                    tasks[message.chat.id][Date].remove(task_done)
-                    text = f'Задача "{task}" на дату {Date} удалена'
-                    if len(tasks[message.chat.id][Date]) == 0:
-                        del tasks[message.chat.id][Date]
-                    save_tasks()
-                else:
-                    text = f'Отсутствует задача "{task}" на дату {Date}'
-            else:
-                text = f'Даты {Date} пока нет в вашем списке'
-        bot.send_message(message.chat.id, text)
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
+    command = message.text.split(maxsplit=1)
+    Date = date2date(command[0])
+    task = command[1].capitalize()
+    task_done = task + ' ✓ '
+    if task in tasks[message.chat.id][Date]:
+        tasks[message.chat.id][Date].remove(task)
+        text = f'Задача "{task}" на дату {Date} удалена'
+        if len(tasks[message.chat.id][Date]) == 0:
+            del tasks[message.chat.id][Date]
+        user_data = {'tasks': tasks[message.chat.id]}
+        create_user(message.chat.id, user_data)
+    elif task_done in tasks[message.chat.id][Date]:
+        tasks[message.chat.id][Date].remove(task_done)
+        text = f'Задача "{task}" на дату {Date} удалена'
+        if len(tasks[message.chat.id][Date]) == 0:
+            del tasks[message.chat.id][Date]
+        user_data = {'tasks': tasks[message.chat.id]}
+        create_user(message.chat.id, user_data)
     else:
-        bot.send_message(message.chat.id, 'Для начала нажмите /start')
+        text = f'Отсутствует задача "{task}" на дату {Date}'
+    bot.edit_message_text(f'{text}', message.chat.id, message.message_id)
 
 
-@bot.message_handler(commands=['done'])
 def done_task(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
+    command = message.text.split(maxsplit=1)
+    Date = date2date(command[0])
+    task = command[1].capitalize()
+    task_done = task + ' ✅'
+    i = tasks[message.chat.id][Date].index(task)
+    tasks[message.chat.id][Date].remove(task)
+    tasks[message.chat.id][Date].insert(i, task_done)
+    text = f'Задача "{task}" на дату {Date} помечена выполненной'
+    user_data = {'tasks': tasks[message.chat.id]}
+    create_user(message.chat.id, user_data)
+    bot.edit_message_text(f'{text}', message.chat.id, message.message_id)
+
+
+# Функция и обработчки для отметки задач выполнеными или удаления
+def get_tasks(message):
+    tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
+    if message.text == 'Показать задачи':
+        action_text = f'👁‍ Выберите дату'
+    elif message.text == 'Удалить задачу':
+        action_text = f'❌ Выберите дату:'
+    elif message.text == 'Отметить выполненной':
+        action_text = f'✅ Выберите дату:'
     if message.chat.id in tasks:
-        command = message.text.split(maxsplit=1)
-        if len(command) < 2:
-            try:
-                if message.text.split()[0] == 'help':
-                    text = f'Пример ввода команды:\n/done 01.01 Новый год!\nСписок доступных для ввода форматов' \
-                           f' дат можно посмотреть по команде \n/formatdates'
-                else:
-                    text = f'Введите команду в формате:\n/done дата задача\nчтобы добавить задачу в список.' \
-                           f'\n\nИли введите /example для отображения примеров ввода команд'
-            except:
-                text = f'Введите команду в формате:\n/done дата задача\nчтобы добавить задачу в список.' \
-                       f'\n\nИли введите /example для отображения примеров ввода команд'
+        sorted_dates_list = sorted_dates(tasks, message.chat.id)
+        date_list = [day.strftime("%d.%m.%Y") for day in sorted_dates_list if day >= date.today()]
+        markup = types.InlineKeyboardMarkup()
+        if message.text == 'Показать задачи':
+            button = types.InlineKeyboardButton(text='Все', callback_data='Все')
+            markup.add(button)
+        for item in date_list:
+            button = types.InlineKeyboardButton(text=item, callback_data=item)
+            markup.add(button)
+    bot.send_message(message.chat.id, action_text, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.message.text[0] in ('👁', '❌', '✅'))
+    def callback_data(call):
+        tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
+        if call.message.text[0] == '👁':
+            msg = bot.edit_message_text(f'{call.data}', call.message.chat.id,
+                                        call.message.message_id)
+            show_tasks(msg)
+        elif call.data in tasks[call.message.chat.id]:
+            tasks_list = [task for task in tasks[call.message.chat.id][call.data]]
+            markup1 = types.InlineKeyboardMarkup()
+            for item1 in tasks_list:
+                button1 = types.InlineKeyboardButton(text=item1, callback_data=item1)
+                markup1.add(button1)
+            bot.edit_message_text(f'{call.message.text[0]} {call.data}', call.message.chat.id,
+                                  call.message.message_id, reply_markup=markup1)
         else:
-            Date = date2date(command[0])
-            if Date == 'Неверная дата':
-                text = 'Неверная дата\nСписок доступных для ввода форматов времени можно ' \
-                       'посмотреть по команде \n/formatdates'
-            else:
-                if Date in tasks[message.chat.id]:
-                    task = command[1].capitalize()
-                    task_done = task + ' ✓ '
-                    if task in tasks[message.chat.id][Date]:
-                        i = tasks[message.chat.id][Date].index(task)
-                        tasks[message.chat.id][Date].remove(task)
-                        tasks[message.chat.id][Date].insert(i, task_done)
-                        text = f'Задача "{task}" на дату {Date} помечена выполненной'
-                        save_tasks()
-                    elif task_done in tasks[message.chat.id][Date]:
-                        text = f'Задача "{task}" на дату {Date} уже была помечена выполненной'
-                    else:
-                        text = f'Отсутствует задача {task} на дату {Date}'
-                else:
-                    text = f'Даты {Date} пока нет в вашем списке'
-        bot.send_message(message.chat.id, text)
-    else:
-        bot.send_message(message.chat.id, 'Для начала нажмите /start')
+            if call.message.text[0] == '❌':
+                msg = bot.edit_message_text(f'{call.message.text[2:]} {call.data}', call.message.chat.id,
+                                            call.message.message_id)
+                delete_task(msg)
+            elif call.message.text[0] == '✅':
+                msg = bot.edit_message_text(f'{call.message.text[2:]} {call.data}', call.message.chat.id,
+                                            call.message.message_id)
+                done_task(msg)
 
-
-@bot.message_handler(content_types=['text'])
-def get_text(message):
-    if message.chat.id in tasks:
-        msg = message.text
-        if msg == 'Меню':
-            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            buttom_add = types.KeyboardButton('Добавить задачу')
-            buttom_rand = types.KeyboardButton('Случайная задача')
-            buttom_done = types.KeyboardButton('Отметить выполненной')
-            buttom_del = types.KeyboardButton('Удалить задачу')
-            buttom_show = types.KeyboardButton('Показать задачи')
-            buttom_help = types.KeyboardButton('Подсказка')
-            buttom_back = types.KeyboardButton('Назад')
-            buttom_rem = types.KeyboardButton('Напоминание')
-            markup.add(buttom_add, buttom_rand)
-            markup.add(buttom_done, buttom_del)
-            markup.add(buttom_show, buttom_rem)
-            markup.add(buttom_help, buttom_back)
-            bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
-        elif msg == 'Добавить задачу':
-            msg = bot.send_message(message.chat.id, 'Введите задачу')
-            bot.register_next_step_handler(msg, start_cal)
-        elif msg == 'Случайная задача':
-            random_task_add(message)
-        elif msg == 'Отметить выполненной':
-            msg = bot.send_message(message.chat.id, 'Введите дату и задачу')
-            bot.register_next_step_handler(msg, done_task)
-        elif msg == 'Удалить задачу':
-            msg = bot.send_message(message.chat.id, 'Введите дату для удаления всех задач на эту дату\nИли введите дату и задачу для удаления одной задачи ')
-            bot.register_next_step_handler(msg, delete_task)
-        elif msg == 'Показать задачи':
-            msg = bot.send_message(message.chat.id, 'Введите дату\nВведите "Все" для отображения всех задач')
-            bot.register_next_step_handler(msg, show_tasks)
-        elif msg == 'Напоминание':
-            msg = bot.send_message(message.chat.id, 'Введите время')
-            bot.register_next_step_handler(msg, command_reminder)
-        elif msg == 'Подсказка':
-            command_formatdates(message)
-        elif message.text == 'Назад':
-            markup = get_menu()
-            bot.send_message(message.chat.id, 'Для выбора команды нажмите "меню"', reply_markup=markup)
-        else:
-            text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
-            bot.send_message(message.chat.id, text)
-    else:
-        bot.send_message(message.chat.id, 'Для начала введите /start')
-
-
-def cronTask():
-    now = datetime.now().strftime("%H:%M")
-    if len(reminders) > 0:
-        for userid, usertime in reminders.items():
-            if now == usertime:
-                t = 'сегодня'
-                Date = date2date(t)
-                if userid in tasks:
-                    if Date in tasks[userid]:
-                        text = Date.upper() + "\n"
-                        for task in tasks[userid][Date]:
-                            text += "[] " + task + "\n"
-                        bot.send_message(userid, f'Привет {users[userid]}!\nВот задачи на сегодня:\n{text}')
-
-def runBot():
-    # Функция для постоянного обращения к телеграм
-    bot.polling(none_stop=True)
-
-def runScheluders():
-    schedule.every(1).minute.do(cronTask)
-
-    # Start cron task after some time interval
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
 
 if __name__ == "__main__":
-    t1 = threading.Thread(target=runBot)
-    t2 = threading.Thread(target=runScheluders)
-    t1.start()
-    t2.start()
+    config = configparser.ConfigParser()
+    config.read("tokens.ini")
+    token = config['TOKENS']['TOKEN']
+
+    # Создание переменной для использования функциий библиотеки
+    bot = TeleBot(token)
+
+
+    @bot.message_handler(commands=['start'])
+    def start(message):
+        user_id = message.chat.id
+        user_data = read_user(user_id)
+        if 'Item' not in user_data:
+            user_data = {'tasks': {}, 'name': message.from_user.first_name}
+            create_user(user_id, user_data)
+            text = f'Привет {message.from_user.first_name}!\nВсё готово, можно начинать\n{HELP}\n' \
+                   f'Для показа подсказки ввода команд введите /команда help или /example'
+        else:
+            text = 'Похоже вы уже используете TODO'
+        markup = get_menu()
+        bot.send_message(message.chat.id, text, reply_markup=markup)
+
+
+    @bot.message_handler(content_types=['text'])
+    def get_text(message):
+        tasks = {message.chat.id: read_user(message.chat.id)['Item']['user_data']['tasks']}
+        if message.chat.id in tasks:
+            msg = message.text
+            if msg == 'Меню':
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                button_add = types.KeyboardButton('Добавить задачу')
+                button_rand = types.KeyboardButton('Случайная задача')
+                button_done = types.KeyboardButton('Отметить выполненной')
+                button_del = types.KeyboardButton('Удалить задачу')
+                button_show = types.KeyboardButton('Показать задачи')
+                button_help = types.KeyboardButton('Подсказка')
+                button_back = types.KeyboardButton('Назад')
+                markup.add(button_add, button_rand)
+                markup.add(button_done, button_del)
+                markup.add(button_show, button_help)
+                markup.add(button_back)
+                bot.send_message(message.chat.id, 'Выберите команду', reply_markup=markup)
+            elif msg == 'Добавить задачу':
+                msg = bot.send_message(message.chat.id, 'Введите задачу')
+                bot.register_next_step_handler(msg, start_cal)
+            elif msg == 'Случайная задача':
+                random_task_add(message)
+            elif msg == 'Отметить выполненной':
+                get_tasks(message)
+            elif msg == 'Удалить задачу':
+                get_tasks(message)
+            elif msg == 'Показать задачи':
+                get_tasks(message)
+            elif msg == 'Подсказка':
+                get_help(message)
+            elif message.text == 'Назад':
+                markup = get_menu()
+                bot.send_message(message.chat.id, 'Для выбора команды нажмите "меню"', reply_markup=markup)
+            else:
+                text = 'Я вас не понимаю(\nВведите /help для отображения списка доступных команд.'
+                bot.send_message(message.chat.id, text)
+        else:
+            bot.send_message(message.chat.id, 'Для начала введите /start')
+
+
+    bot.polling(none_stop=True)

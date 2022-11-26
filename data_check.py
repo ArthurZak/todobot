@@ -54,13 +54,10 @@ def date2date(d):
 # Функция сортировки дат
 def sorted_dates(dictionary, id):
     try:
-        date_list = [datetime.strptime(date2date(d), '%d.%m.%Y') for d in
-                     dictionary[id].keys()]
+        date_list = [datetime.strptime(date2date(d), '%d.%m.%Y').date() for d in dictionary[id].keys()]
         date_list.sort()
-
         return date_list
     except:
-        date_list = [datetime.strptime(date2date(d), '%d.%m.%Y') for d in
-                     dictionary]
+        date_list = [datetime.strptime(date2date(d), '%d.%m.%Y').date() for d in dictionary]
         date_list.sort()
         return date_list
